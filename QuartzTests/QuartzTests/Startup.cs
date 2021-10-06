@@ -9,6 +9,7 @@ using Quartz.Spi;
 using QuartzTests.DTOs;
 using QuartzTests.Factory;
 using QuartzTests.Jobs;
+using QuartzTests.Listeners;
 using QuartzTests.Services;
 using System;
 using System.Collections.Generic;
@@ -29,6 +30,7 @@ namespace QuartzTests
             //向DI容器註冊Quartz服務
             services.AddSingleton<IJobFactory, JobFactory>();
             services.AddSingleton<ISchedulerFactory, StdSchedulerFactory>();
+            services.AddSingleton<IJobListener, JobListener>();
 
             //向DI容器註冊Job
             services.AddSingleton<WorkingForLongTime>();

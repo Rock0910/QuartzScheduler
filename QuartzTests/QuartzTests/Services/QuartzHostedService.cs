@@ -28,7 +28,7 @@ namespace QuartzTests.Services
 
         private List<JobSchedule> _allJobSchedules;
 
-        //private readonly IJobListener _jobListener;
+        private readonly IJobListener _jobListener;
 
         //private readonly ISchedulerListener _schedulerListener;
 
@@ -36,12 +36,12 @@ namespace QuartzTests.Services
 
         public CancellationToken CancellationToken { get; private set; }
 
-        public QuartzHostedService(ILogger<QuartzHostedService> logger, ISchedulerFactory schedulerFactory, IJobFactory jobFactory, IEnumerable<JobSchedule> jobSchedules/*,IJobListener jobListener, ISchedulerListener schedulerListener*/)
+        public QuartzHostedService(ILogger<QuartzHostedService> logger, ISchedulerFactory schedulerFactory, IJobFactory jobFactory, IEnumerable<JobSchedule> jobSchedules,IJobListener jobListener/*,ISchedulerListener schedulerListener*/)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _schedulerFactory = schedulerFactory ?? throw new ArgumentNullException(nameof(schedulerFactory));
             _jobFactory = jobFactory ?? throw new ArgumentNullException(nameof(jobFactory));
-            //_jobListener = jobListener ?? throw new ArgumentNullException(nameof(jobListener));
+            _jobListener = jobListener ?? throw new ArgumentNullException(nameof(jobListener));
             //_schedulerListener = schedulerListener ?? throw new ArgumentNullException(nameof(schedulerListener));
             _injectJobSchedules = jobSchedules ?? throw new ArgumentNullException(nameof(jobSchedules));
         }
@@ -66,8 +66,8 @@ namespace QuartzTests.Services
                 // 再模擬動態加入新 Job 項目 (e.g. 從 DB 來的，針對不同報表能動態決定產出時機)
                 //_allJobSchedules.Add(new JobSchedule(jobName: "0,5*n啟", jobType: typeof(WorkingForLongTime), cronExpression: "0/5 * * * * ?"));
 
-                
-                _allJobSchedules.Add(new JobSchedule(jobName: "任務編號 1-1", jobGroup: "工作群組 1 ", jobType: typeof(WorkingForLongTime)));
+
+                //_allJobSchedules.Add(new JobSchedule(jobName: "任務編號 1-1", jobGroup: "工作群組 1 ", jobType: typeof(WorkingForLongTime)));
                 //_allJobSchedules.Add(new JobSchedule(jobName: "任務編號 1-2", jobGroup: "工作群組 1 ", jobType: typeof(WorkingForLongTime)));
                 //_allJobSchedules.Add(new JobSchedule(jobName: "任務編號 1-3", jobGroup: "工作群組 1 ", jobType: typeof(WorkingForLongTime)));
 
@@ -81,9 +81,9 @@ namespace QuartzTests.Services
                 //_allJobSchedules.Add(new JobSchedule(jobName: "任務編號 2-3", jobGroup: "工作群組 2 ", jobType: typeof(WorkingForLongTime),
                 //    excludedGroupNames: new List<string> { "工作群組 1" }
                 //    ));
+
+
                 /*
-                IJobDetail job1 = JobBuilder.Create<WorkingForLongTime>().WithIdentity("任務編號 1-1", "工作群組 1 ").Build();
-                IJobDetail job2 = JobBuilder.Create<WorkingForLongTime>().WithIdentity("任務編號 2-1", "工作群組 2 ").Build();
 
                 ITrigger trigger1 = TriggerBuilder
                 .Create()
@@ -101,8 +101,30 @@ namespace QuartzTests.Services
 
                 // 初始排程器 Scheduler
                 Scheduler = await _schedulerFactory.GetScheduler(cancellationToken);
-                Scheduler.JobFactory = _jobFactory;
 
+                //建立兩個要串連的任務
+                IJobDetail job1 = JobBuilder.Create<WorkingForLongTime>().WithIdentity("任務編號 1-1", "工作群組 1 ").StoreDurably().Build();
+                IJobDetail job2 = JobBuilder.Create<WorkingForLongTime>().WithIdentity("任務編號 2-1", "工作群組 2 ").StoreDurably().Build();
+                
+                //新增Job進去，記得要讓這個Job StoreDurably() (即使沒在執行也保存)，才能預先放進去
+                await Scheduler.AddJob(job1, true);
+                await Scheduler.AddJob(job2, true);
+
+                //設定排程器用的產生job用Service
+                Scheduler.JobFactory = _jobFactory;
+                //設定監聽所有job的監聽器Service到排程器中
+                Scheduler.ListenerManager.AddJobListener(_jobListener);
+
+                //新增一個專門串聯任務用的Listener
+                //注意，這個東西如果要排他，可能要自己修改
+                JobChainingJobListener jobChainingJobListener = new JobChainingJobListener("串聯任務用");
+                //設定Listener要串哪兩個任務在一起
+                jobChainingJobListener.AddJobChainLink(job1.Key,job2.Key);
+                //新增這個串聯用Listener到排程器中
+                Scheduler.ListenerManager.AddJobListener(jobChainingJobListener);
+
+                //啟動第一個Job
+                await Scheduler.TriggerJob(job1.Key);
 
                 /*
                                 // 增加 Listener
@@ -122,14 +144,11 @@ namespace QuartzTests.Services
                     jobSchedule.JobStatus = JobStatus.Scheduled;
                 }
 
-                //JobChainingJobListener jobChainer = new JobChainingJobListener("1to2");
-                //jobChainer.AddJobChainLink(new JobKey("任務編號 1-1"), new JobKey("任務編號 2-1"));
 
                 // 啟動排程
                 await Scheduler.Start(cancellationToken);
-                await Task.Delay(TimeSpan.FromSeconds(2));
-
-                await StartB(Scheduler);
+                //await Task.Delay(TimeSpan.FromSeconds(2));
+                //await StartB(Scheduler);
             }
         }
 

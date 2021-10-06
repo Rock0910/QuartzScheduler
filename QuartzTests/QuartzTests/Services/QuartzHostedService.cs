@@ -9,6 +9,7 @@ using Quartz.Listener;
 using Quartz.Spi;
 using QuartzTests.DTOs;
 using QuartzTests.Jobs;
+using QuartzTests.Listeners;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -101,10 +102,18 @@ namespace QuartzTests.Services
 
                 // 初始排程器 Scheduler
                 Scheduler = await _schedulerFactory.GetScheduler(cancellationToken);
+                Console.WriteLine(Scheduler.SchedulerName);
+
+                Dictionary<string, List<string>> extraInfo = new Dictionary<string, List<string>>();
+                extraInfo.Add("excludes", new List<string> { "工作群組 1","工作群組 2"});
 
                 //建立兩個要串連的任務
-                IJobDetail job1 = JobBuilder.Create<WorkingForLongTime>().WithIdentity("任務編號 1-1", "工作群組 1 ").StoreDurably().Build();
-                IJobDetail job2 = JobBuilder.Create<WorkingForLongTime>().WithIdentity("任務編號 2-1", "工作群組 2 ").StoreDurably().Build();
+                IJobDetail job1 = JobBuilder.Create<WorkingForLongTime>()
+                    .WithIdentity("任務編號 1-1", "工作群組 1")
+                    .SetJobData(new JobDataMap(extraInfo))
+                    .StoreDurably()
+                    .Build();
+                IJobDetail job2 = JobBuilder.Create<WorkingForLongTime>().WithIdentity("任務編號 2-1", "工作群組 2").SetJobData(new JobDataMap(extraInfo)).StoreDurably().Build();
                 
                 //新增Job進去，記得要讓這個Job StoreDurably() (即使沒在執行也保存)，才能預先放進去
                 await Scheduler.AddJob(job1, true);
@@ -117,12 +126,24 @@ namespace QuartzTests.Services
 
                 //新增一個專門串聯任務用的Listener
                 //注意，這個東西如果要排他，可能要自己修改
-                JobChainingJobListener jobChainingJobListener = new JobChainingJobListener("串聯任務用");
+                JobChainingListenerWithExclude jobChainingListenerWithExclude = new JobChainingListenerWithExclude("串聯任務用");
                 //設定Listener要串哪兩個任務在一起
-                jobChainingJobListener.AddJobChainLink(job1.Key,job2.Key);
+                jobChainingListenerWithExclude.AddJobChainLink(job1.Key,job2.Key);
                 //新增這個串聯用Listener到排程器中
-                Scheduler.ListenerManager.AddJobListener(jobChainingJobListener);
+                Scheduler.ListenerManager.AddJobListener(jobChainingListenerWithExclude);
 
+                JobChainingListenerWithExclude jobChainingListenerWithExclude2 = new JobChainingListenerWithExclude("串聯任務用1");
+                //設定Listener要串哪兩個任務在一起
+                jobChainingListenerWithExclude.AddJobChainLink(job2.Key, job1.Key);
+
+                //新增這個串聯用Listener到排程器中
+                Scheduler.ListenerManager.AddJobListener(jobChainingListenerWithExclude2);
+
+                Console.WriteLine("數量"+Scheduler.ListenerManager.GetJobListeners().Count);
+                foreach (var item in Scheduler.ListenerManager.GetJobListeners().ToList())
+                {
+                    Console.WriteLine("Name~~~"+item.Name);
+                }
                 //啟動第一個Job
                 await Scheduler.TriggerJob(job1.Key);
 
@@ -133,7 +154,7 @@ namespace QuartzTests.Services
                 */
 
                 // 逐一將工作項目加入排程器中 
-
+                /*
                 foreach (var jobSchedule in _allJobSchedules)
                 {
                     var jobDetail = CreateJobDetail(jobSchedule);
@@ -143,11 +164,11 @@ namespace QuartzTests.Services
                     await Scheduler.ScheduleJob(jobDetail, trigger, cancellationToken);
                     jobSchedule.JobStatus = JobStatus.Scheduled;
                 }
+                */
 
 
                 // 啟動排程
                 await Scheduler.Start(cancellationToken);
-                //await Task.Delay(TimeSpan.FromSeconds(2));
                 //await StartB(Scheduler);
             }
         }

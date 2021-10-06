@@ -59,7 +59,13 @@ namespace QuartzTests.Jobs
             _logger.LogInformation($"@{DateTime.Now:HH:mm:ss} - 工作名稱：{jobName} - group{jobGroup}- 完成");
             }else
             {
-                _logger.LogInformation($"@{DateTime.Now:HH:mm:ss} - 沒名稱的工作完成：");
+                for(int i = 1; i <= 5; i++)
+                {
+                    Console.WriteLine("任務進度" + i + "/5");
+                    System.Threading.Thread.Sleep(1000);
+
+                }
+                _logger.LogInformation($"@{DateTime.Now:HH:mm:ss} - 沒名稱的工作完成");
             }
             return Task.CompletedTask;
         }

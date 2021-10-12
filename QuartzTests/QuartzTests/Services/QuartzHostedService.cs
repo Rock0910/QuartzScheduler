@@ -20,7 +20,8 @@ namespace QuartzTests.Services
 {
     public class QuartzHostedService : IHostedService
     {
-        private readonly ISchedulerFactory _schedulerFactory;
+        //private readonly ISchedulerFactory _schedulerFactory;
+        private readonly IScheduler _scheduler;
         private readonly IJobFactory _jobFactory;
 
         private readonly ILogger<QuartzHostedService> _logger;
@@ -37,10 +38,10 @@ namespace QuartzTests.Services
 
         public CancellationToken CancellationToken { get; private set; }
 
-        public QuartzHostedService(ILogger<QuartzHostedService> logger, ISchedulerFactory schedulerFactory, IJobFactory jobFactory, IEnumerable<JobSchedule> jobSchedules,IJobListener jobListener/*,ISchedulerListener schedulerListener*/)
+        public QuartzHostedService(ILogger<QuartzHostedService> logger, IScheduler scheduler, IJobFactory jobFactory, IEnumerable<JobSchedule> jobSchedules,IJobListener jobListener/*,ISchedulerListener schedulerListener*/)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _schedulerFactory = schedulerFactory ?? throw new ArgumentNullException(nameof(schedulerFactory));
+            _scheduler = scheduler ?? throw new ArgumentNullException(nameof(scheduler));
             _jobFactory = jobFactory ?? throw new ArgumentNullException(nameof(jobFactory));
             _jobListener = jobListener ?? throw new ArgumentNullException(nameof(jobListener));
             //_schedulerListener = schedulerListener ?? throw new ArgumentNullException(nameof(schedulerListener));
@@ -101,7 +102,7 @@ namespace QuartzTests.Services
                 */
 
                 // 初始排程器 Scheduler
-                Scheduler = await _schedulerFactory.GetScheduler(cancellationToken);
+                Scheduler = _scheduler;
                 Console.WriteLine(Scheduler.SchedulerName);
 
                 Dictionary<string, List<string>> extraInfo = new Dictionary<string, List<string>>();
@@ -118,6 +119,21 @@ namespace QuartzTests.Services
                 //新增Job進去，記得要讓這個Job StoreDurably() (即使沒在執行也保存)，才能預先放進去
                 await Scheduler.AddJob(job1, true);
                 await Scheduler.AddJob(job2, true);
+
+                IJobDetail job3 = JobBuilder.Create<WorkingForLongTime>()
+                    .WithIdentity("任務編號 1-3", "工作群組 1")
+                    .SetJobData(new JobDataMap(extraInfo))
+                    .Build();
+                ITrigger trigger3 = TriggerBuilder
+                .Create()
+                .WithIdentity("job3.trigger")
+                .WithSimpleSchedule()
+                .WithDescription("只執行一次")
+                .Build();
+
+
+
+                await Scheduler.ScheduleJob(job3, trigger3);
 
                 //設定排程器用的產生job用Service
                 Scheduler.JobFactory = _jobFactory;

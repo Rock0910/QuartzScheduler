@@ -40,7 +40,7 @@ namespace QuartzTests.Jobs
 
             _logger.LogInformation($"@{DateTime.Now:HH:mm:ss} - 工作名稱：{jobName} - group{jobGroup}- 開始");
 
-            for (int i = 1; i <= 5; i++)
+            for (int i = 0; i <= 4; i++)
             {
 
                 // 自己定義當 job 要被迫被被中斷時，哪邊適合結束
@@ -50,18 +50,24 @@ namespace QuartzTests.Jobs
                     break;
                 }
 
-                System.Threading.Thread.Sleep(1000);
-                _logger.LogInformation($"@{DateTime.Now:HH:mm:ss} - 工作名稱：{jobName} - group{jobGroup}- 第{i}/5次");
+                    System.Threading.Thread.Sleep(1000);
+                    _logger.LogInformation($"@{DateTime.Now:HH:mm:ss} - 工作名稱：{jobName} - group{jobGroup}- 第{i}/4次");
 
-            }
+                }
 
 
             _logger.LogInformation($"@{DateTime.Now:HH:mm:ss} - 工作名稱：{jobName} - group{jobGroup}- 完成");
             }else
             {
-                for(int i = 1; i <= 5; i++)
+                for(int i = 0; i <= 4; i++)
                 {
-                    Console.WriteLine("任務進度" + i + "/5");
+                    string progress = "○○○○○";
+                    for (int x = -1; x < i; x++)
+                    {
+                        progress = progress.Remove(i, 1).Insert(i, "●");
+                    }
+                    Console.WriteLine(context.JobDetail.Key.Name + "," + context.JobDetail.Key.Group + "的任務進度" + progress);
+
                     System.Threading.Thread.Sleep(1000);
 
                 }

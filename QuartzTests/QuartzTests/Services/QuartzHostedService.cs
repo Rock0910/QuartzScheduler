@@ -126,17 +126,8 @@ namespace QuartzTests.Services
                 }
                 jobDetails.ForEach(async curJob => await Scheduler.AddJob(curJob, true));
 
-                for (int i = 1; i < jobNames.Count; i++)
-                {
-                    JobChainingListenerWithExclude curChainer = new JobChainingListenerWithExclude("["+jobNames[i-1].Key+","+curJobGroup+"] → ["+jobNames[i].Key + ","+ curJobGroup +"]");
-                    //設定Listener要串哪兩個任務在一起
-                    curChainer.AddJobChainLink(jobDetails[i-1].Key, jobDetails[i].Key);
-                    //新增這個串聯用Listener到排程器中
-                    Scheduler.ListenerManager.AddJobListener(curChainer);
-                }
 
                 //測試若撞了是否會停止
-
                 IJobDetail blockerJob = JobBuilder.Create(typeof(WorkingForLongerTime))
                        .WithIdentity("blocker", "B_1")
                        .StoreDurably()
@@ -146,9 +137,18 @@ namespace QuartzTests.Services
                 JobChainingListenerWithExclude debugChainer = new JobChainingListenerWithExclude("[" + jobNames[1].Key + "," + curJobGroup + "] → [故意撞的,B_1]");
                 //設定Listener要串哪兩個任務在一起
                 debugChainer.AddJobChainLink(jobDetails[1].Key, blockerJob.Key);
-
                 //新增這個串聯用Listener到排程器中
                 Scheduler.ListenerManager.AddJobListener(debugChainer);
+
+                for (int i = 1; i < jobNames.Count; i++)
+                {
+                    JobChainingListenerWithExclude curChainer = new JobChainingListenerWithExclude("["+jobNames[i-1].Key+","+curJobGroup+"] → ["+jobNames[i].Key + ","+ curJobGroup +"]");
+                    //設定Listener要串哪兩個任務在一起
+                    curChainer.AddJobChainLink(jobDetails[i-1].Key, jobDetails[i].Key);
+                    //新增這個串聯用Listener到排程器中
+                    Scheduler.ListenerManager.AddJobListener(curChainer);
+                }
+
 
 
                 /*

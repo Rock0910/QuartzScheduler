@@ -38,7 +38,7 @@ namespace QuartzTests.Services
 
         public CancellationToken CancellationToken { get; private set; }
 
-        public QuartzHostedService(ILogger<QuartzHostedService> logger, IScheduler scheduler, IJobFactory jobFactory, IEnumerable<JobSchedule> jobSchedules,IJobListener jobListener/*,ISchedulerListener schedulerListener*/)
+        public QuartzHostedService(ILogger<QuartzHostedService> logger, IScheduler scheduler, IJobFactory jobFactory, IEnumerable<JobSchedule> jobSchedules, IJobListener jobListener/*,ISchedulerListener schedulerListener*/)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _scheduler = scheduler ?? throw new ArgumentNullException(nameof(scheduler));
@@ -105,46 +105,96 @@ namespace QuartzTests.Services
                 Scheduler = _scheduler;
                 Console.WriteLine(Scheduler.SchedulerName);
 
-                Dictionary<string, List<string>> extraInfo = new Dictionary<string, List<string>>();
-                extraInfo.Add("excludes", new List<string> { "工作群組 1","工作群組 2"});
+                string curJobGroup = "A_1"; //本串任務的群組編號
+                List<string> excludeGroupNames = new List<string> { "A_1", "B_1" }; //不能同時執行的任務群組(排他)
+                List<KeyValuePair<string, Type>> jobNames = new List<KeyValuePair<string, Type>>(); //子任務串
+                jobNames.Add(new KeyValuePair<string, Type>("A1", typeof(WorkingForLongTime)));
+                jobNames.Add(new KeyValuePair<string, Type>("A2", typeof(WorkingForLongTime)));
+                jobNames.Add(new KeyValuePair<string, Type>("A3", typeof(WorkingForLongTime)));
+                jobNames.Add(new KeyValuePair<string, Type>("A4", typeof(WorkingForLongTime)));
+                jobNames.Add(new KeyValuePair<string, Type>("A5", typeof(WorkingForLongTime)));
 
+                List<IJobDetail> jobDetails = new List<IJobDetail>();
+                foreach (var item in jobNames)
+                {
+                    IJobDetail curJob = JobBuilder.Create(item.Value)
+                        .WithIdentity(item.Key, curJobGroup)
+                        .StoreDurably()
+                        .Build();
+                    curJob.JobDataMap.Put("excludeGroupNames", excludeGroupNames);
+                    jobDetails.Add(curJob);
+                }
+                jobDetails.ForEach(async curJob => await Scheduler.AddJob(curJob, true));
+
+                for (int i = 1; i < jobNames.Count; i++)
+                {
+                    JobChainingListenerWithExclude curChainer = new JobChainingListenerWithExclude("["+jobNames[i-1].Key+","+curJobGroup+"] → ["+jobNames[i].Key + ","+ curJobGroup +"]");
+                    //設定Listener要串哪兩個任務在一起
+                    curChainer.AddJobChainLink(jobDetails[i-1].Key, jobDetails[i].Key);
+                    //新增這個串聯用Listener到排程器中
+                    Scheduler.ListenerManager.AddJobListener(curChainer);
+                }
+
+                //測試若撞了是否會停止
+
+                IJobDetail blockerJob = JobBuilder.Create(typeof(WorkingForLongerTime))
+                       .WithIdentity("blocker", "B_1")
+                       .StoreDurably()
+                       .Build();
+                blockerJob.JobDataMap.Put("excludeGroupNames", excludeGroupNames);
+                await Scheduler.AddJob(blockerJob, true);
+                JobChainingListenerWithExclude debugChainer = new JobChainingListenerWithExclude("[" + jobNames[1].Key + "," + curJobGroup + "] → [故意撞的,B_1]");
+                //設定Listener要串哪兩個任務在一起
+                debugChainer.AddJobChainLink(jobDetails[1].Key, blockerJob.Key);
+
+                //新增這個串聯用Listener到排程器中
+                Scheduler.ListenerManager.AddJobListener(debugChainer);
+
+
+                /*
                 //建立兩個要串連的任務
                 IJobDetail job1 = JobBuilder.Create<WorkingForLongTime>()
                     .WithIdentity("任務編號 1-1", "工作群組 1")
-                    .SetJobData(new JobDataMap(extraInfo))
-                    .StoreDurably()
-                    .Build();
-                IJobDetail job2 = JobBuilder.Create<WorkingForLongTime>().WithIdentity("任務編號 2-1", "工作群組 2").SetJobData(new JobDataMap(extraInfo)).StoreDurably().Build();
-                
+                    .StoreDurably().Build();
+                job1.JobDataMap.Put("excludeGroupNames", excludeGroupNames);
+
+                IJobDetail job2 = JobBuilder.Create<WorkingForLongTime>().WithIdentity("任務編號 2-1", "工作群組 2")
+                    .StoreDurably().Build();
+                job2.JobDataMap.Put("excludeGroupNames", excludeGroupNames);
+
                 //新增Job進去，記得要讓這個Job StoreDurably() (即使沒在執行也保存)，才能預先放進去
                 await Scheduler.AddJob(job1, true);
                 await Scheduler.AddJob(job2, true);
+                */
 
+                /* 測試沒Durable用的
                 IJobDetail job3 = JobBuilder.Create<WorkingForLongTime>()
                     .WithIdentity("任務編號 1-3", "工作群組 1")
-                    .SetJobData(new JobDataMap(extraInfo))
+                    //.SetJobData(new JobDataMap(extraInfo))
                     .Build();
+                job3.JobDataMap.Put("excludes", excludes);
                 ITrigger trigger3 = TriggerBuilder
                 .Create()
                 .WithIdentity("job3.trigger")
                 .WithSimpleSchedule()
                 .WithDescription("只執行一次")
                 .Build();
-
-
-
                 await Scheduler.ScheduleJob(job3, trigger3);
+                */
+
+
+
 
                 //設定排程器用的產生job用Service
                 Scheduler.JobFactory = _jobFactory;
                 //設定監聽所有job的監聽器Service到排程器中
                 Scheduler.ListenerManager.AddJobListener(_jobListener);
 
+                /*
                 //新增一個專門串聯任務用的Listener
-                //注意，這個東西如果要排他，可能要自己修改
                 JobChainingListenerWithExclude jobChainingListenerWithExclude = new JobChainingListenerWithExclude("串聯任務用");
                 //設定Listener要串哪兩個任務在一起
-                jobChainingListenerWithExclude.AddJobChainLink(job1.Key,job2.Key);
+                jobChainingListenerWithExclude.AddJobChainLink(job1.Key, job2.Key);
                 //新增這個串聯用Listener到排程器中
                 Scheduler.ListenerManager.AddJobListener(jobChainingListenerWithExclude);
 
@@ -154,14 +204,24 @@ namespace QuartzTests.Services
 
                 //新增這個串聯用Listener到排程器中
                 Scheduler.ListenerManager.AddJobListener(jobChainingListenerWithExclude2);
+                */
 
-                Console.WriteLine("數量"+Scheduler.ListenerManager.GetJobListeners().Count);
+                Console.WriteLine("數量" + Scheduler.ListenerManager.GetJobListeners().Count);
                 foreach (var item in Scheduler.ListenerManager.GetJobListeners().ToList())
                 {
-                    Console.WriteLine("Name~~~"+item.Name);
+                    Console.WriteLine("Name~~~" + item.Name);
                 }
                 //啟動第一個Job
-                await Scheduler.TriggerJob(job1.Key);
+                //await Scheduler.TriggerJob(jobDetails[0].Key);
+
+                ITrigger trigger = TriggerBuilder
+                .Create()
+                .WithIdentity(jobDetails[0].Key.Name, jobDetails[0].Key.Group)
+                .ForJob(jobDetails[0])
+                .WithSimpleSchedule()
+                .Build();
+                await Scheduler.ScheduleJob(trigger);
+
 
                 /*
                                 // 增加 Listener
@@ -318,94 +378,6 @@ namespace QuartzTests.Services
                 */
                 .WithDescription("只執行一次")
                 .Build();
-            }
-        }
-        /// <summary>
-        /// 測試開始另一個排程，排他，很白癡做法
-        /// </summary>
-        /// <param name="scheduler1"></param>
-        /// <returns></returns>
-        public static async Task StartB(IScheduler scheduler1/*, IScheduler scheduler2*/)
-        {
-            Console.WriteLine("開始嘗試執行第二個工作↓");
-            Console.WriteLine();
-
-            IJobDetail job = JobBuilder.Create<WorkingForLongTime>()
-                .WithIdentity("等待3", "group1")
-                .Build();
-            ITrigger trigger = TriggerBuilder.Create()
-                .WithIdentity("trigger2", "group1")//識別設定
-                .StartNow()//開始時間設定，這個是現在，還有StartAt(UTC時間)可以使用
-                .WithSimpleSchedule()
-                .Build();
-
-            if (CheckJobs(scheduler1, "任務編號 1-1"))//如果1號排程器正在執行任何工作
-            {
-                do
-                {
-                    Console.WriteLine("[X] 1號排程器還在執行工作... >>>任務編號 1-1");
-                    await Task.Delay(TimeSpan.FromSeconds(3));//等三秒
-                } while (CheckJobs(scheduler1, "任務編號 1-1"));//如果1號排程器還在執行任何工作，那就在一次DO
-                //如果1號沒執行任何工作，那就會執行下列程式碼
-                await scheduler1.ScheduleJob(job, trigger);
-                //await scheduler1.Start();
-                Console.WriteLine("[O] 開始執行二號工作!");
-                /*
-                                Console.WriteLine("1結束");
-                                Console.WriteLine("2號START" + scheduler2.IsStarted);
-                                Console.WriteLine("2號STAND" + scheduler2.InStandbyMode);
-                                Console.WriteLine("2號OFF" + scheduler2.IsShutdown);
-                */
-            }
-            else
-            {
-                Console.WriteLine("[O] 1號排程器沒有工作");
-                await scheduler1.ScheduleJob(job, trigger);
-                //await scheduler1.Start();
-                Console.WriteLine("[O] 2號排程器開始執行工作!");
-            }
-        }
-        /// <summary>
-        /// 檢查這個排程器裡面的正在執行工作資料，並依傳入的任務名稱(要被排他的)來做判斷基準，若傳入的任務名稱正在執行，會回傳True，反之False
-        /// </summary>
-        /// <param name="scheduler"></param>
-        /// <param name="targetName"></param>
-        /// <returns></returns>
-
-        private static bool CheckJobs(IScheduler scheduler, string targetName)
-        {
-            List<string> jobNames = new List<string>();
-            List<string> jobGroups = new List<string>();
-
-            foreach (var x in scheduler.GetCurrentlyExecutingJobs().Result)
-            {
-                jobNames.Add(x.JobDetail.Key.Name);
-                if (!jobGroups.Contains(x.JobDetail.Key.Group))
-                {
-                    jobGroups.Add(x.JobDetail.Key.Group);
-                }
-            }
-            Console.WriteLine("正在執行的任務名稱");
-            foreach (var item in jobNames)
-            {
-                Console.Write(" | " + item);
-            }
-            Console.WriteLine();
-
-            Console.WriteLine("正在執行工作的群組們");
-            foreach (var item in jobGroups)
-            {
-                Console.Write(" | " + item);
-            }
-            Console.WriteLine();
-
-            if (jobNames.Contains(targetName))
-            {
-                return true;
-            }
-            else
-            {
-                return false;
             }
         }
     }

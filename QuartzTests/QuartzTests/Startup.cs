@@ -35,6 +35,7 @@ namespace QuartzTests
 
             //向DI容器註冊Job
             services.AddSingleton<WorkingForLongTime>();
+            services.AddSingleton<WorkingForLongerTime>();
 
             //向DI容器註冊JobSchedule
             //services.AddSingleton(new JobSchedule(jobName: "0,30*n啟", jobType: typeof(WorkingForLongTime), cronExpression: "0/30 * * * * ?"));

@@ -49,6 +49,8 @@ namespace QuartzTests.Listeners
             JobExecutionException? jobException,
             CancellationToken cancellationToken = default)
         {
+            await context.Scheduler.UnscheduleJob(new TriggerKey(context.JobDetail.Key.Name, context.JobDetail.Key.Group));
+
             //取得Listener所在的排程器
             var curJobScheduler = context.Scheduler;
             //取得已完成任務名稱
@@ -70,20 +72,28 @@ namespace QuartzTests.Listeners
                 //取得接下來要執行的工作的詳細資料
                 var nextJobInfo = curJobScheduler.GetJobDetail(sj);
                 //取得之前設定的 excludes(要排他的工作群組)
-                List<string> excludes = (List<string>)nextJobInfo.Result.JobDataMap["excludes"];
-                //看那些群組名稱
-                excludes.ForEach(x => Console.WriteLine(x));
+                List<string> excludes = (List<string>)nextJobInfo.Result.JobDataMap["excludeGroupNames"];
+                //看排他的群組名稱
+                //excludes.ForEach(x => Console.WriteLine(x+"|"));
 
-                if (CheckJobs(curJobScheduler,excludes,finishedJobName))//如果排程器正在執行工作的群組相衝
+                if (CheckJobs(curJobScheduler,excludes))//如果排程器正在執行工作的群組相衝
                 {
                     do
                     {
                         Console.WriteLine("[X] 排程器中有相衝的工作群組，等待三秒後重試\n");
                         await Task.Delay(TimeSpan.FromSeconds(3));//等三秒
-                    } while (CheckJobs(curJobScheduler,excludes,finishedJobName));//如果排程器正在執行工作的群組相衝
+                    } while (CheckJobs(curJobScheduler,excludes));//如果排程器正在執行工作的群組相衝
                 }
                 //開始下一個工作
-                await context.Scheduler.TriggerJob(sj, cancellationToken).ConfigureAwait(false);
+                ITrigger trigger = TriggerBuilder
+                .Create()
+                .WithIdentity(sj.Name,sj.Group)
+                .ForJob(sj)
+                .WithSimpleSchedule()
+                .Build();
+
+                await context.Scheduler.ScheduleJob(trigger);
+                //await context.Scheduler.TriggerJob(sj, cancellationToken).ConfigureAwait(false);
                 Console.WriteLine("[O] 開始執行工作!");
                 //移除本Listener
                 curJobScheduler.ListenerManager.RemoveJobListener(Name);
@@ -101,12 +111,10 @@ namespace QuartzTests.Listeners
         /// 該工作所在的排程器
         /// <param name="groupNames"></param>
         /// 排他的群組
-        /// <param name="previousJobName"></param>
-        /// 剛執行完畢的任務名稱
         /// <param name="targetName"></param>
         /// 接下來要執行的任務名稱(尚未使用)
         /// <returns></returns>
-        private static bool CheckJobs(IScheduler scheduler, List<string> groupNames,string previousJobName ,string targetName = null)
+        private static bool CheckJobs(IScheduler scheduler, List<string> groupNames,string targetName = null)
         {
             //正在執行的工作名稱[]
             List<string> jobNames = new List<string>();
@@ -116,8 +124,31 @@ namespace QuartzTests.Listeners
             //看排程器中的正在執行工作
             foreach (var x in scheduler.GetCurrentlyExecutingJobs().Result)
             {
-                //如果找到的資料不是剛執行完的任務才增加其資料到List中
-                if (x.JobDetail.Key.Name != previousJobName)
+                //取得當筆Job的Trigger們
+                var jobTriggers = scheduler.GetTriggersOfJob(x.JobDetail.Key).Result;
+
+                /*
+                //工作沒在執行
+                var jobIsRunning = false;
+                */
+                //對這個Job的所有Trigger做檢查
+                foreach (var item in jobTriggers)
+                {
+                    //取得Trigger狀態
+                    var triggerState = scheduler.GetTriggerState(item.Key).Result;
+                    Console.WriteLine(item.Key+"___TRIGGER ___" + triggerState.ToString());
+                    //如果他的狀態是 停止、封鎖、錯誤 判定成正在執行
+                    /*
+                    if(triggerState == TriggerState.Paused || triggerState == TriggerState.Blocked || triggerState == TriggerState.Error)
+                    {
+                        //那這工作就正在執行
+                        jobIsRunning = true;
+                    }
+                    */
+                }
+
+                //如果這工作正在執行
+                if (jobTriggers.Count > 0)
                 {
                     //增加該任務名字到陣列中
                     jobNames.Add(x.JobDetail.Key.Name);
@@ -128,7 +159,6 @@ namespace QuartzTests.Listeners
                         jobGroups.Add(x.JobDetail.Key.Group);
                     }
                 }
-                
             }
 
             Console.WriteLine("正在執行的任務名稱");
